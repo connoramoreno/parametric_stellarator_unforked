@@ -14,23 +14,109 @@ def rxn_rate(s):
         rr (float): fusion reaction rate (1/cm^3/s). Equates to neutron source
             density.
     """
-    # Temperature
-    T = 11.5*(1 - s)
-    # Ion density
-    n = 4.8e20*(1 - s**5)
-    # Reaction rate
-    rr = 3.68e-18*(n**2)/4*T**(-2/3)*np.exp(-19.94*T**(-1/3))
+    if s == 1:
+        rr = 0
+    else:
+        # Temperature
+        T = 11.5*(1 - s)
+        # Ion density
+        n = 4.8e20*(1 - s**5)
+        # Reaction rate
+        rr = 3.68e-18*(n**2)/4*T**(-2/3)*np.exp(-19.94*T**(-1/3))
 
     return rr
 
 
-def create_tet(moab_core, mesh_set, verts, id0, id1, id2, id3):
-    """Creates tetrahedron and adds to moab core.
-    
+def source_strength(verts, verts_s, id0, id1, id2, id3):
+    """Computes neutron source strength for a tetrahedron using five-node
+    Gaussian quadrature.
+
     Arguments:
-        moab_core (object): pymoab core instance.
-        mesh_set (EntityHandle): pymoab mesh set.
-        verts (list of EntityHandle): list of mesh vertices.
+        verts (list of list of float): list of 3D Cartesian coordinates of each
+            vertex in form [x (cm), y (cm), z (cm)].
+        verts_s (list of float): list of closed flux surface indices for each
+            vertex.
+        id0 (int): first tetrahedron index in MOAB canonical numbering system.
+        id1 (int): second tetrahedron index in MOAB canonical numbering system.
+        id2 (int): third tetrahedron index in MOAB canonical numbering system.
+        id3 (int): fourth tetrahedron index in MOAB canonical numbering system.
+
+    Returns:
+        ss (float): integrated source strength for tetrahedron.
+    """
+    # Define vertices for tetrahedron
+    verts0 = verts[id0]
+    verts1 = verts[id1]
+    verts2 = verts[id2]
+    verts3 = verts[id3]
+
+    # Compute fusion source density at each vertex
+    ss0 = rxn_rate(verts_s[id0])
+    ss1 = rxn_rate(verts_s[id1])
+    ss2 = rxn_rate(verts_s[id2])
+    ss3 = rxn_rate(verts_s[id3])
+
+    # Define barycentric coordinates for integration points
+    bary_coords = [
+        [0.25, 0.25, 0.25, 0.25],
+        [0.5, 1/6, 1/6, 1/6],
+        [1/6, 0.5, 1/6, 1/6],
+        [1/6, 1/6, 0.5, 1/6],
+        [1/6, 1/6, 1/6, 0.5]
+    ]
+
+    # Define weights for integration points
+    int_w = [-0.8, 0.45, 0.45, 0.45, 0.45, 0.45]
+    
+    # Interpolate source strength at integration points
+    ss_int_pts = []
+    for pt in bary_coords:
+        ss_int = pt[0]*ss0 + pt[1]*ss1 + pt[2]*ss2 + pt[3]*ss3
+        ss_int_pts.append(ss_int)
+    
+    # Compute graph of tetrahedral vertices
+    T = [
+        [
+            verts0[0] - verts3[0],
+            verts1[0] - verts3[0],
+            verts2[0] - verts3[0]
+        ],
+        [
+            verts0[1] - verts3[1],
+            verts1[1] - verts3[1],
+            verts2[1] - verts3[1]
+        ],
+        [
+            verts0[2] - verts3[2],
+            verts1[2] - verts3[2],
+            verts2[2] - verts3[2]
+        ]
+    ]
+    
+    # Compute Jacobian of graph
+    Jac = np.linalg.det(T)
+    # Compute volume of tetrahedron
+    vol = np.abs(Jac)/6
+    # Compute source strength of tetrahedron
+    ss = vol*sum(i*j for i, j in zip(int_w, ss_int_pts))
+
+    return ss
+
+
+def create_tet(
+    moab_core, tag_handle, mesh_set, moab_verts, verts, verts_s, id0, id1, id2,
+    id3):
+    """Creates tetrahedron and adds to moab core.
+
+    Arguments:
+        moab_core (object): PyMOAB core instance.
+        tag_handle (TagHandle): PyMOAB source strength tag.
+        mesh_set (EntityHandle): PyMOAB mesh set.
+        moab_verts (list of EntityHandle): list of mesh vertices.
+        verts (list of list of float): list of 3D Cartesian coordinates of each
+            vertex in form [x (cm), y (cm), z (cm)].
+        verts_s (list of float): list of closed flux surface indices for each
+            vertex.
         id0 (int): first tetrahedron index in MOAB canonical numbering system.
         id1 (int): second tetrahedron index in MOAB canonical numbering system.
         id2 (int): third tetrahedron index in MOAB canonical numbering system.
@@ -38,19 +124,23 @@ def create_tet(moab_core, mesh_set, verts, id0, id1, id2, id3):
     """
     # Define vertices for tetrahedron
     tet_verts = [
-            verts[id0],
-            verts[id1],
-            verts[id2],
-            verts[id3]
+            moab_verts[id0],
+            moab_verts[id1],
+            moab_verts[id2],
+            moab_verts[id3]
         ]
-    # Create tetrahedron in pymoab
+    # Create tetrahedron in PyMOAB
     tet = moab_core.create_element(types.MBTET, tet_verts)
-    # Add tetrahedron to pymoab core instance
+    # Add tetrahedron to PyMOAB core instance
     moab_core.add_entity(mesh_set, tet)
+    # Compute source strength for tetrahedron
+    ss = source_strength(verts, verts_s, id0, id1, id2, id3)
+    # Tag tetrahedra with source strength data
+    moab_core.tag_set_data(tag_handle, tet, [ss])
 
 
 def source_mesh(plas_eq, num_s, num_theta, num_phi):
-    """Creates H5M volumetric mesh defining fusion source using pymoab and
+    """Creates H5M volumetric mesh defining fusion source using PyMOAB and
     user-supplied plasma equilibrium VMEC data.
 
     Arguments:
@@ -72,26 +162,43 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
     # mesh
     phi_list = np.linspace(0, 2*np.pi, num = num_phi)
 
-    # Create pymoab core instance
+    # Create PyMOAB core instance
     mbc = core.Core()
-    # Create pymoab mesh set for tetrahedra
-    tet_set = mbc.create_meshset()
+
+    # Define data type for source strength tag
+    tag_type = types.MB_TYPE_DOUBLE
+    # Define tag size for source strength tag (1 double value)
+    tag_size = 1
+    # Define storage type for source strength
+    storage_type = types.MB_TAG_DENSE
+    # Define tag handle for source strength
+    tag_handle = mbc.tag_get_handle(
+        "SourceStrength", tag_size, tag_type, storage_type,
+        create_if_missing = True
+    )
 
     # Initialize list of vertices in mesh
     verts = []
+    # Initialize list of closed flux surface indices for each vertex
+    verts_s = []
 
     # Compute vertices in Cartesian space
     for phi in phi_list:
         # Determine vertex at magnetic axis
         verts += [list(vmec.vmec2xyz(s_list[0], theta_list[0], phi))]
-        # Detemine vertices beyond magnetic axis in same toroidal angle
+        # Store s for vertex
+        verts_s += [s_list[0]]
         for s in s_list[1:]:
             for theta in theta_list:
+                # Detemine vertices beyond magnetic axis in same toroidal angle
                 verts += [list(vmec.vmec2xyz(s, theta, phi))]
+                # Store s for vertex
+                verts_s += [s]
 
-    # Create vertices in pymoab
+    # Create vertices in PyMOAB
     mbc_verts = mbc.create_vertices(verts)
-    # Add vertices to tetrahedron mesh set
+
+    tet_set = mbc.create_meshset()
     mbc.add_entity(tet_set, mbc_verts)
 
     # Create tetrahedra, looping through vertices
@@ -110,19 +217,19 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
             wedge_id3 = next_ma_id
             wedge_id4 = next_ma_id + k
             wedge_id5 = next_ma_id + k + 1
-            
+
             # Define three tetrahedra for wedge
             create_tet(
-                mbc, tet_set, mbc_verts, wedge_id1, wedge_id2, wedge_id4,
-                wedge_id0
+                mbc, tag_handle, tet_set, mbc_verts, verts, verts_s, wedge_id1,
+                wedge_id2, wedge_id4, wedge_id0
             )
             create_tet(
-                mbc, tet_set, mbc_verts, wedge_id5, wedge_id4, wedge_id2,
-                wedge_id3
+                mbc, tag_handle, tet_set, mbc_verts, verts, verts_s, wedge_id5,
+                wedge_id4, wedge_id2, wedge_id3
             )
             create_tet(
-                mbc, tet_set, mbc_verts, wedge_id0, wedge_id2, wedge_id4,
-                wedge_id3
+                mbc, tag_handle, tet_set, mbc_verts, verts, verts_s, wedge_id0,
+                wedge_id2, wedge_id4, wedge_id3
             )
 
         # Create tetrahedra for hexahedra beyond center of plasma
@@ -131,7 +238,7 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
             s_offset = j*num_theta
             # Define index at next closed magnetic flux surface
             next_s_offset = s_offset + num_theta
-            
+
             # Create tetrahedra for current hexahedron
             for k, theta in enumerate(theta_list[:-1], 1):
                 # Define indices for hexahedron beyond center of plasma
@@ -143,18 +250,28 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
                 tet_id5 = next_ma_id + next_s_offset + k
                 tet_id6 = next_ma_id + next_s_offset + k + 1
                 tet_id7 = next_ma_id + s_offset + k + 1
-                
+
                 # Define five tetrahedra for hexahedron
                 create_tet(
-                    mbc, tet_set, mbc_verts, tet_id0, tet_id3, tet_id1, tet_id4)
+                    mbc, tag_handle, tet_set, mbc_verts, verts, verts_s,
+                    tet_id0, tet_id3, tet_id1, tet_id4
+                )
                 create_tet(
-                    mbc, tet_set, mbc_verts, tet_id7, tet_id4, tet_id6, tet_id3)
+                    mbc, tag_handle, tet_set, mbc_verts, verts, verts_s,
+                    tet_id7, tet_id4, tet_id6, tet_id3
+                )
                 create_tet(
-                    mbc, tet_set, mbc_verts, tet_id2, tet_id1, tet_id3, tet_id6)
+                    mbc, tag_handle, tet_set, mbc_verts, verts, verts_s,
+                    tet_id2, tet_id1, tet_id3, tet_id6
+                )
                 create_tet(
-                    mbc, tet_set, mbc_verts, tet_id5, tet_id6, tet_id4, tet_id1)
+                    mbc, tag_handle, tet_set, mbc_verts, verts, verts_s,
+                    tet_id5, tet_id6, tet_id4, tet_id1
+                )
                 create_tet(
-                    mbc, tet_set, mbc_verts, tet_id3, tet_id1, tet_id4, tet_id6)
+                    mbc, tag_handle, tet_set, mbc_verts, verts, verts_s,
+                    tet_id3, tet_id1, tet_id4, tet_id6
+                )
 
     # Export mesh
     mbc.write_file("SourceMesh.h5m")

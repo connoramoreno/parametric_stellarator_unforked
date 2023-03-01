@@ -9,8 +9,9 @@ from scipy.optimize import root_scalar
 import os
 
 
-def cubit_export(solids, h5m_tags, facet_tol, len_tol, norm_tol,
-    include_magnets, magnet_h5m_tag):
+def cubit_export(
+    solids, h5m_tags, facet_tol, len_tol, norm_tol, include_magnets,
+    magnet_h5m_tag):
     """Export H5M neutronics model via Cubit.
 
     Arguments:
@@ -55,9 +56,11 @@ def cubit_export(solids, h5m_tags, facet_tol, len_tol, norm_tol,
             'group "mat:' + magnet_h5m_tag + '" add volume ' + ' '.join(str(i)
             for i in np.linspace(1, vol_id, num = vol_id))
         )
+        # Increment volume index for consecutive material tagging
+        vol_id += 1
     
     # Assign material groups
-    for i, tag in enumerate(h5m_tags, start = vol_id + 1):
+    for i, tag in enumerate(h5m_tags, start = vol_id):
         cubit.cmd('group "mat:' + tag + '" add volume ' + str(i))
 
     # Initialize tolerance strings for export statement as empty strings
@@ -379,7 +382,7 @@ def parametric_stellarator(
     plas_eq, num_periods, radial_build, gen_periods, num_phi = 60,
     num_theta = 100, exclude = [], step_export = True, h5m_export = None,
     plas_h5m_tag = None, include_graveyard = False, include_magnets = False,
-    magnets = None, magnet_data = None, include_source_mesh = False,
+    magnets = None, include_source_mesh = False,
     source_mesh_params = None, facet_tol = None, len_tol = None,
     norm_tol = None, min_mesh_size = 5.0, max_mesh_size = 20.0,
     volume_atol = 0.00001, center_atol = 0.00001, bounding_box_atol = 0.00001):
@@ -420,8 +423,9 @@ def parametric_stellarator(
         include_magnets (bool): generate magnets based on user-supplied coil
             data (defaults to False).
         magnets (str): path to magnet coil data file (defaults to None).
-        magnet_data (dict of dict): dictionary for magnet data including magnet
-            name to use for STEP export, width, thickness, material tag to use
+        magnet_paramas (dict of dict): dictionary for magnet parameters
+            including magnet name to use for STEP export, width, thickness,
+            material tag to use
             in H5M neutronics model, starting index for data in data file, and
             stopping index for data in data file in the form
             {'name': {'width': width (cm), 'thickness': thickness (cm),
@@ -531,15 +535,17 @@ def parametric_stellarator(
     # Conditionally build magnet coils
     if include_magnets == True:
         # Extract coil data
-        magnet_name = list(magnet_data.keys())[0]
-        coil_width = list(magnet_data.values())[0]['width']
-        coil_thickness = list(magnet_data.values())[0]['thickness']
-        magnet_h5m_tag = list(magnet_data.values())[0]['h5m_tag']
-        start = list(magnet_data.values())[0]['start']
-        stop = list(magnet_data.values())[0]['stop']
+        file = magnets['file']
+        cross_section = magnets['cross_section']
+        start = magnets['start']
+        stop = magnets['stop']
+        magnet_name = magnets['name']
+        magnet_h5m_tag = magnets['h5m_tag']
         # Generate magnets
-        magnet_coils.magnet_coils(
-            magnets, coil_width, coil_thickness, start, stop, magnet_name)
+        magnet_coils.magnet_coils(file, cross_section, start, stop, magnet_name)
+    # Otherwise, pass None for magnet's H5M tag
+    else:
+        magnet_h5m_tag = None
 
     # Export components
     export(
