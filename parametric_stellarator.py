@@ -2,7 +2,6 @@ import read_vmec
 import cadquery as cq
 import cubit
 import magnet_coils
-import source_mesh
 from paramak.utils import export_solids_to_dagmc_h5m
 import numpy as np
 from scipy.optimize import root_scalar
@@ -382,10 +381,9 @@ def parametric_stellarator(
     plas_eq, num_periods, radial_build, gen_periods, num_phi = 60,
     num_theta = 100, exclude = [], step_export = True, h5m_export = None,
     plas_h5m_tag = None, include_graveyard = False, include_magnets = False,
-    magnets = None, include_source_mesh = False,
-    source_mesh_params = None, facet_tol = None, len_tol = None,
-    norm_tol = None, min_mesh_size = 5.0, max_mesh_size = 20.0,
-    volume_atol = 0.00001, center_atol = 0.00001, bounding_box_atol = 0.00001):
+    magnets = None, facet_tol = None, len_tol = None, norm_tol = None,
+    min_mesh_size = 5.0, max_mesh_size = 20.0, volume_atol = 0.00001,
+    center_atol = 0.00001, bounding_box_atol = 0.00001):
     """Generates CadQuery workplane objects for components of a
     parametrically-defined stellarator, based on user-supplied plasma
     equilibrium VMEC data and a user-defined radial build. Each component is
@@ -422,22 +420,20 @@ def parametric_stellarator(
             component (defaults to False).
         include_magnets (bool): generate magnets based on user-supplied coil
             data (defaults to False).
-        magnets (str): path to magnet coil data file (defaults to None).
-        magnet_paramas (dict of dict): dictionary for magnet parameters
-            including magnet name to use for STEP export, width, thickness,
-            material tag to use
-            in H5M neutronics model, starting index for data in data file, and
-            stopping index for data in data file in the form
-            {'name': {'width': width (cm), 'thickness': thickness (cm),
-            'h5m_tag': h5m_tag (str), 'start': start (int), 'stop': stop (int)}}
-            (defaults to None). All values must be provided.
-        include_source_mesh (bool): generate H5M volumetric source mesh based on
-            user-supplied plasma equilibrium VMEC data.
-        source_mesh_params (dict): parameters to use defining source mesh
-            including numbers of closed flux surfaces, poloidal angles, and
-            toroidal angles in the form
-            {'num_s': num_s (int), 'num_theta': num_theta (int),
-            'num_phi': num_phi (int)}
+        magnets (dict): dictionary of magnet parameters including path to
+            magnet coil point-locus data file, coil cross-section definition,
+            starting index for data in file, stopping index for data in file,
+            magnet name to use for STEP export, and material tag to use in H5M
+            neutronics model. The specific form for the dictionary is
+            {'file': file (str), 'cross_section': cross-section (list),
+            'start': start (int), 'stop': stop (int), 'name': name (str),
+            'h5m_tag': h5m_tag (str)}
+            For the list defining the coil cross-section, the cross-section
+            shape must be either a circle or rectangle. For a circular
+            cross-section, the list format is
+            ['circle' (str), radius (float, cm)]
+            For a rectangular cross-section, the list format is
+            ['rectangle' (str), width (float, cm), thickness (float, cm)]
         facet_tol (float): maximum distance a facet may be from surface of CAD
             representation for Cubit export.
         len_tol (float): maximum length of facet edge for Cubit export
@@ -553,10 +549,3 @@ def parametric_stellarator(
         facet_tol, len_tol, norm_tol, min_mesh_size, max_mesh_size,
         volume_atol, center_atol, bounding_box_atol
     )
-
-    # Conditionally create source mesh
-    if include_source_mesh == True:
-        num_s = source_mesh_params['num_s']
-        num_theta = source_mesh_params['num_theta']
-        num_phi = source_mesh_params['num_phi']
-        source_mesh.source_mesh(plas_eq, num_s, num_theta, num_phi)

@@ -3,7 +3,6 @@ import numpy as np
 
 
 def magnet_coils(
-    #coils, width, thickness, start, stop = None, name = 'magnet_coils'):
     file, cross_section, start, stop = None, name = 'magnet_coils'):
     """Generates STEP file using Cubit for stellarator magnet coils based on
     user-supplied coil data. The coils have rectangular cross-section.
