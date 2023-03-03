@@ -104,7 +104,9 @@ def source_strength(verts, verts_s, id0, id1, id2, id3):
 
 
 def create_tet(
-    moab_core, tag_handle, mesh_set, moab_verts, verts, verts_s, id0, id1, id2,
+    #moab_core, tag_handle, mesh_set, moab_verts, verts, verts_s, id0, id1, id2,
+    #id3):
+    moab_core, strengths, mesh_set, moab_verts, verts, verts_s, id0, id1, id2,
     id3):
     """Creates tetrahedron and adds to moab core.
 
@@ -135,8 +137,9 @@ def create_tet(
     moab_core.add_entity(mesh_set, tet)
     # Compute source strength for tetrahedron
     ss = source_strength(verts, verts_s, id0, id1, id2, id3)
+    strengths += [ss]
     # Tag tetrahedra with source strength data
-    moab_core.tag_set_data(tag_handle, tet, [ss])
+    # moab_core.tag_set_data(tag_handle, tet, [ss])
 
 
 def source_mesh(plas_eq, num_s, num_theta, num_phi):
@@ -166,7 +169,7 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
     mbc = core.Core()
 
     # Define data type for source strength tag
-    tag_type = types.MB_TYPE_DOUBLE
+    """tag_type = types.MB_TYPE_DOUBLE
     # Define tag size for source strength tag (1 double value)
     tag_size = 1
     # Define storage type for source strength
@@ -175,12 +178,14 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
     tag_handle = mbc.tag_get_handle(
         "SourceStrength", tag_size, tag_type, storage_type,
         create_if_missing = True
-    )
+    )"""
 
     # Initialize list of vertices in mesh
     verts = []
     # Initialize list of closed flux surface indices for each vertex
     verts_s = []
+
+    strengths = []
 
     # Compute vertices in Cartesian space
     for phi in phi_list:
@@ -219,7 +224,7 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
             wedge_id5 = next_ma_id + k + 1
 
             # Define three tetrahedra for wedge
-            create_tet(
+            """create_tet(
                 mbc, tag_handle, tet_set, mbc_verts, verts, verts_s, wedge_id1,
                 wedge_id2, wedge_id4, wedge_id0
             )
@@ -229,6 +234,18 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
             )
             create_tet(
                 mbc, tag_handle, tet_set, mbc_verts, verts, verts_s, wedge_id0,
+                wedge_id2, wedge_id4, wedge_id3
+            )"""
+            create_tet(
+                mbc, strengths, tet_set, mbc_verts, verts, verts_s, wedge_id1,
+                wedge_id2, wedge_id4, wedge_id0
+            )
+            create_tet(
+                mbc, strengths, tet_set, mbc_verts, verts, verts_s, wedge_id5,
+                wedge_id4, wedge_id2, wedge_id3
+            )
+            create_tet(
+                mbc, strengths, tet_set, mbc_verts, verts, verts_s, wedge_id0,
                 wedge_id2, wedge_id4, wedge_id3
             )
 
@@ -252,7 +269,7 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
                 tet_id7 = next_ma_id + s_offset + k + 1
 
                 # Define five tetrahedra for hexahedron
-                create_tet(
+                """create_tet(
                     mbc, tag_handle, tet_set, mbc_verts, verts, verts_s,
                     tet_id0, tet_id3, tet_id1, tet_id4
                 )
@@ -271,7 +288,35 @@ def source_mesh(plas_eq, num_s, num_theta, num_phi):
                 create_tet(
                     mbc, tag_handle, tet_set, mbc_verts, verts, verts_s,
                     tet_id3, tet_id1, tet_id4, tet_id6
+                )"""
+                create_tet(
+                    mbc, strengths, tet_set, mbc_verts, verts, verts_s,
+                    tet_id0, tet_id3, tet_id1, tet_id4
+                )
+                create_tet(
+                    mbc, strengths, tet_set, mbc_verts, verts, verts_s,
+                    tet_id7, tet_id4, tet_id6, tet_id3
+                )
+                create_tet(
+                    mbc, strengths, tet_set, mbc_verts, verts, verts_s,
+                    tet_id2, tet_id1, tet_id3, tet_id6
+                )
+                create_tet(
+                    mbc, strengths, tet_set, mbc_verts, verts, verts_s,
+                    tet_id5, tet_id6, tet_id4, tet_id1
+                )
+                create_tet(
+                    mbc, strengths, tet_set, mbc_verts, verts, verts_s,
+                    tet_id3, tet_id1, tet_id4, tet_id6
                 )
 
     # Export mesh
     mbc.write_file("SourceMesh.h5m")
+
+    min_s = min(strengths)
+    print(min_s)
+    tot_s = sum(strengths)
+    print(tot_s)
+    print(min_s/tot_s)
+
+    return strengths
